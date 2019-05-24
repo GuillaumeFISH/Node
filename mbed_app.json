@@ -1,0 +1,15 @@
+{
+    "target_overrides": {
+        "*": {
+            "platform.stack-stats-enabled": true,
+            "platform.heap-stats-enabled": true,
+            "platform.cpu-stats-enabled": true,
+            "platform.thread-stats-enabled": true,
+            "platform.sys-stats-enabled": true,
+            "target.stdio_uart_tx": "PA_11",
+            "target.stdio_uart_rx": "PA_12",
+            "platform.stdio-baud-rate": 115200,
+            "platform.default-serial-baud-rate": 115200
+        }
+    }
+}

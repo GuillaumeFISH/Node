@@ -17,6 +17,8 @@
     #define TX_DBM              6
 #endif
 
+#define CODE_RATE 1
+//Serial pc(PA_11, PA_12);
 /**********************************************************************/
 volatile bool txDone;
 
@@ -43,14 +45,14 @@ const RadioEvents_t rev = {
 
 int main()
 {
-    uint8_t seq = 0;
+    //uint8_t seq = 0;
 
     printf("\r\nreset-tx ");
 
     Radio::Init(&rev);
 
     Radio::Standby();
-    Radio::LoRaModemConfig(BW_KHZ, SPREADING_FACTOR, 1);
+    Radio::LoRaModemConfig(BW_KHZ, SPREADING_FACTOR, CODE_RATE);
     Radio::SetChannel(CF_HZ);
 
     Radio::set_tx_dbm(TX_DBM);
@@ -59,9 +61,12 @@ int main()
     Radio::LoRaPacketConfig(8, false, true, false);
 
     for (;;) {
-        Radio::radio.tx_buf[0] = seq;  /* set payload */
+        Radio::radio.tx_buf[0] = 0x30;  /* set payload */
+        Radio::radio.tx_buf[1] = 0x31;
+        Radio::radio.tx_buf[2] = 0x32;
+        Radio::radio.tx_buf[3] = 0x33;
         txDone = false;
-        Radio::Send(1, 0, 0, 0);   /* begin transmission */
+        Radio::Send(4, 0, 0, 0);   /* begin transmission */
 
         printf("sent\r\n");
         while (!txDone) {
@@ -70,8 +75,8 @@ int main()
 
         printf("got-tx-done\r\n");
 
-        wait(0.5);  /* throttle sending rate */
-        seq++;  /* change payload */
+        wait(3);  /* throttle sending rate */
+        //seq++;  /* change payload */
     }
 }
 
