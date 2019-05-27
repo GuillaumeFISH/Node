@@ -42,7 +42,7 @@ Serial * gps_Serial = new Serial(D1,D0); //serial object for use w/ GPS
 Adafruit_GPS myGPS(gps_Serial); //object of Adafruit's GPS class
 char c; //when read via Adafruit_GPS::read(), the class returns single character stored here
 
-/* Defines the two queues used, one for events and one for printing to the screen */
+// Defines the queues
 EventQueue TransmitQueue;
 EventQueue eventQueue;
 EventQueue GPSQueue;
@@ -50,6 +50,7 @@ EventQueue GPSQueue;
 /* Defines the timer */
 Timer t;
 time_t whattime;
+
 
 /* Instantiate the expansion board */
 static XNucleoIKS01A2 *mems_expansion_board = XNucleoIKS01A2::instance(D14, D15, D4, D5);
@@ -138,11 +139,9 @@ void Send_transmission() {
                 pc.printf("Altitude: %5.2f\r\n", myGPS.altitude);
                 pc.printf("Satellites: %d\r\n", myGPS.satellites);
     */
-
     txDone = false;
     //The first parameter indicates the size of the payload in bytes, dont forget this.
     Radio::Send(12, 0, 0, 0);   /* begin transmission */
-
     printf("sent\r\n");
     while (!txDone) {
         Radio::service();
@@ -150,7 +149,6 @@ void Send_transmission() {
 
     printf("got-tx-done\r\n");
     printf("\r\n-------End of cycle-------\r\n\r\n");
-    
 }
 
 //Collects and parses GPS data
@@ -191,6 +189,8 @@ void txDoneCB()
 
 void rxDoneCB(uint8_t size, float rssi, float snr)
 {
+    printf("Received Query\r\n");
+    Send_transmission();
 }
 
 const RadioEvents_t rev = {
@@ -264,8 +264,15 @@ int main()
     GPSTicker.attach(GPSQueue.event(&GPS_data), 3.0f);
     ReadTicker.attach(eventQueue.event(&Read_Sensors), 3.0f);
     //Print ticker currently triggers the radio transmission.
-    TransmitTicker.attach(TransmitQueue.event(&Send_transmission), 3.0f);
+    //TransmitTicker.attach(TransmitQueue.event(&Send_transmission), 3.0f);
 
-    wait(osWaitForever);  /* throttle sending rate */
+    Radio::Rx(0);
+    rxDoneCB(1, 2, 3);
+    //Service interrupts
+    for (;;) { 
+        Radio::service();
+    }
+    printf("Bad news");
+    wait(osWaitForever);
 }
 
