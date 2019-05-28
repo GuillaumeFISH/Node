@@ -142,13 +142,14 @@ void Send_transmission() {
     txDone = false;
     //The first parameter indicates the size of the payload in bytes, dont forget this.
     Radio::Send(12, 0, 0, 0);   /* begin transmission */
-    printf("sent\r\n");
+    printf("Packet sent\r\n");
     while (!txDone) {
         Radio::service();
     }
 
-    printf("got-tx-done\r\n");
-    printf("\r\n-------End of cycle-------\r\n\r\n");
+    printf("Done servicing\r\n");
+    printf("-------END OF CYCLE-------\r\n\r\n");
+    Radio::Rx(0);
 }
 
 //Collects and parses GPS data
@@ -189,7 +190,8 @@ void txDoneCB()
 
 void rxDoneCB(uint8_t size, float rssi, float snr)
 {
-    printf("Received Query\r\n");
+    printf("\r\n-------START OF CYCLE------\r\n");
+    printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
     Send_transmission();
 }
 
@@ -261,13 +263,12 @@ int main()
     Ticker ReadTicker;
     Ticker TransmitTicker;
 
-    GPSTicker.attach(GPSQueue.event(&GPS_data), 3.0f);
+    GPSTicker.attach(GPSQueue.event(&GPS_data), 1.0f);
     ReadTicker.attach(eventQueue.event(&Read_Sensors), 3.0f);
     //Print ticker currently triggers the radio transmission.
     //TransmitTicker.attach(TransmitQueue.event(&Send_transmission), 3.0f);
 
     Radio::Rx(0);
-    rxDoneCB(1, 2, 3);
     //Service interrupts
     for (;;) { 
         Radio::service();
