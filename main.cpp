@@ -102,22 +102,11 @@ void Read_Sensors() {
   acc_gyro->get_g_axes(axes4);
 }
 
-/* Prints to the serial console */
+
 //Currently using to send radio transmission. May 24
+// this runs in the lower priority thread
 void Send_transmission() {
-    // this runs in the lower priority thread
-    /*
-    printf("%u ", (unsigned int)whattime);
-    printf("%d ", int_time);
-    printf("%lld ", usTime1);
-    printf("%7s %s ", print_double(buffer1, temp1), print_double(buffer2, humid1));
-    printf("%7s %s ", print_double(buffer3, temp2), print_double(buffer4, humid2));
-    printf("%6ld %6ld %6ld ", axes1[0], axes1[1], axes1[2]);
-    printf("%6ld %6ld %6ld", axes2[0], axes2[1], axes2[2]);
-    printf("%6ld %6ld %6ld", axes3[0], axes3[1], axes3[2]);
-    printf("%6ld %6ld %6ld\r\n", axes4[0], axes4[1], axes4[2]);
-    */
-    
+
     //Building the payload
     //Microcontroller time
     Radio::radio.tx_buf[0] = (int)((whattime >> 24) & 0xFF) ; 
@@ -126,29 +115,68 @@ void Send_transmission() {
     Radio::radio.tx_buf[3] = (int)((whattime & 0XFF));
 
     //Some sensor data for fun
-    int int_temp1 = (int)(temp1*100);
-    Radio::radio.tx_buf[4] = (int)((int_temp1 >> 24) & 0xFF) ; 
-    Radio::radio.tx_buf[5] = (int)((int_temp1 >> 16) & 0xFF) ;
-    Radio::radio.tx_buf[6] = (int)((int_temp1 >> 8) & 0XFF);
-    Radio::radio.tx_buf[7] = (int)((int_temp1 & 0XFF));
+    uint16_t u16_temp1 = (uint16_t)(temp1*100);
+    Radio::radio.tx_buf[4] = (u16_temp1 >> 8) & 0xFF ; 
+    Radio::radio.tx_buf[5] = u16_temp1 & 0xFF ;
 
-    //acceleration in z (gravity)
-    Radio::radio.tx_buf[8] = (int)((axes1[2] >> 24) & 0xFF) ; 
-    Radio::radio.tx_buf[9] = (int)((axes1[2] >> 16) & 0xFF) ;
-    Radio::radio.tx_buf[10] = (int)((axes1[2] >> 8) & 0XFF);
-    Radio::radio.tx_buf[11] = (int)((axes1[2] & 0XFF));
+    /*If you have a fix you can fill more of the buffer with location data*/
+    //myGPS.fix is commented out for testing, perhaps not even needed
+    //If the if statement is used, you must redefine the payload length as it is currently hardcoded
+    //if (myGPS.fix) {
+        //Hardcoded gps data for testing.
+        myGPS.latitude = 9000.00;
+        myGPS.longitude = 18000.00;
+        myGPS.lat = 'N';
+        myGPS.lon = 'E';
+        myGPS.altitude = 99999.99;
+        printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
+        printf("Altitude: %5.2f\r\n", myGPS.altitude);
 
-    /*If you have a fix you can fill more of the buffer with location data
-    if (myGPS.fix) {
-                pc.printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
-                pc.printf("Speed: %5.2f knots\r\n", myGPS.speed);
-                pc.printf("Angle: %5.2f\r\n", myGPS.angle);
-                pc.printf("Altitude: %5.2f\r\n", myGPS.altitude);
-                pc.printf("Satellites: %d\r\n", myGPS.satellites);
-    */
+        //Converting to a non float format for transmission
+        unsigned int uint_latitude = (int)(myGPS.latitude * 100);
+        unsigned int uint_longitude = (int)(myGPS.longitude * 100);
+        unsigned int uint_altitude = (int)(myGPS.altitude * 100);
+
+        //Encoding scheme for hemishere indicator (to avoid sending chars and save 4 bits)
+        unsigned int uint_latlon = -1; //-1 = error
+        if(myGPS.lat == 'S'){
+            if(myGPS.lon == 'E')
+                uint_latlon = 0; //N-E
+            else 
+                uint_latlon = 1; //N-W
+        }
+        else if(myGPS.lon == 'E')
+                uint_latlon = 2; //S-E
+
+        else
+            uint_latlon = 3; //S-W
+
+        //All 20 bits of latitude and first 12 of longitude
+        unsigned int uint_positioningtop = (uint_latitude << 12) | (uint_longitude >> 12);
+        //Last 12 bits of longitude and first 20 of altitude
+        unsigned int uint_positioningmid = (uint_longitude << 20) | (uint_altitude >> 4);
+        //Last 4 bits of altitude and the 4 for lat/long hemisphere
+        unsigned int uint_positioningbot = ((uint_altitude << 4) & 0xF0) | (uint_latlon);
+
+        Radio::radio.tx_buf[6] = (uint_positioningtop >> 24) & 0xFF;
+        Radio::radio.tx_buf[7] = (uint_positioningtop >> 16) & 0xFF;
+        Radio::radio.tx_buf[8] = (uint_positioningtop >> 8) & 0xFF;
+        Radio::radio.tx_buf[9] = uint_positioningtop & 0xFF;
+
+        Radio::radio.tx_buf[10] = (uint_positioningmid >> 24) & 0xFF;
+        Radio::radio.tx_buf[11] = (uint_positioningmid >> 16) & 0xFF;
+        Radio::radio.tx_buf[12] = (uint_positioningmid >> 8) & 0xFF;
+        Radio::radio.tx_buf[13] = uint_positioningmid & 0xFF;
+
+        Radio::radio.tx_buf[14] = uint_positioningbot & 0xFF;
+    //}
+    unsigned int uint_deviceid = 1917;
+    Radio::radio.tx_buf[15] = uint_deviceid & 0xFF;
+
+
     txDone = false;
     //The first parameter indicates the size of the payload in bytes, dont forget this.
-    Radio::Send(12, 0, 0, 0);   /* begin transmission */
+    Radio::Send(16, 0, 0, 0);   /* begin transmission */
     printf("Packet sent\r\n");
     while (!txDone) {
         Radio::service();
@@ -176,6 +204,7 @@ void GPS_data() {
                 received++;    
         }
     } while(received != 2);
+
     int_time = asUnixTime(myGPS.year+2000, myGPS.month, myGPS.day, myGPS.hour, myGPS.minute, myGPS.seconds);  
     
     //set rtc when called for the first time (sync to gps on startup) 
@@ -281,6 +310,7 @@ int main()
     for (;;) { 
         Radio::service();
     }
+    //Should never reach this point
     printf("Bad news");
     wait(osWaitForever);
 }
