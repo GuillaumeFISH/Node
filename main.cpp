@@ -1,3 +1,10 @@
+/*
+What Node does as of May 29 2019
+1. Mode is set to receive indefinetely
+2. Once a transmission is received, message is printed out
+3. Sends out a transmission which includes gps information
+4. Mode is set to receive indefinetely after successful transmission (in Send_transmission)
+*/
 #include "radio.h"
 #include "XNucleoIKS01A2.h"
 #include "MBed_Adafruit_GPS.h"
@@ -193,6 +200,7 @@ void rxDoneCB(uint8_t size, float rssi, float snr)
     printf("\r\n-------START OF CYCLE------\r\n");
     printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
     Send_transmission();
+    //Radio::Rx(0); //Temporary while Send_transmission is commented out
 }
 
 const RadioEvents_t rev = {
