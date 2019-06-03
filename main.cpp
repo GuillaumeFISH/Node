@@ -193,7 +193,7 @@ void GPS_data() {
     int received = 0;
     do{
         c = myGPS.read();   //queries the GPS
-        //if (c) { pc.printf("%c", c); } //this line will echo the GPS data if not paused
+        //if (c) { printf("%c", c); } //this line will echo the GPS data if not paused
         
         //check if we recieved a new message from GPS, if so, attempt to parse it,
         if ( myGPS.newNMEAreceived() ) {
@@ -246,9 +246,11 @@ const RadioEvents_t rev = {
 
 int main()
 {
+    
     myGPS.begin(9600);  //sets baud rate for GPS communication; note this may be changed via Adafruit_GPS::sendCommand(char *)
                     //a list of GPS commands is available at http://www.adafruit.com/datasheets/PMTK_A08.pdf
     
+    myGPS.sendCommand(PMTK_SET_BAUD_57600);
     myGPS.sendCommand(PMTK_AWAKE);
     printf("Wake Up GPS...\r\n");
 
@@ -256,7 +258,7 @@ int main()
     //these commands are defined in MBed_Adafruit_GPS.h; a link is provided there for command creation
     myGPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
     myGPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
-    myGPS.sendCommand(PGCMD_ANTENNA);
+    myGPS.sendCommand(PGCMD_NOANTENNA);
 
     //Intialize transmitter settings
     Radio::Init(&rev);
