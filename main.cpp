@@ -72,6 +72,83 @@ static LSM303AGRAccSensor *accelerometer = mems_expansion_board->accelerometer;
 
 volatile bool txDone;
 
+class Coord {
+    const double a = 6378137.0;              //WGS-84 semi-major axis
+    const double e2 = 6.6943799901377997e-3;  //WGS-84 first eccentricity squared
+    const double a1 = 4.2697672707157535e+4;  //a1 = a*e2
+    const double a2 = 1.8230912546075455e+9;  //a2 = a1*a1
+    const double a3 = 1.4291722289812413e+2;  //a3 = a1*e2/2
+    const double a4 = 4.5577281365188637e+9;  //a4 = 2.5*a2
+    const double a5 = 4.2840589930055659e+4;  //a5 = a1+a3
+    const double a6 = 9.9330562000986220e-1;  //a6 = 1-e2
+    double zp,w2,w,r2,r,s2,c2,s,c,ss;
+    double g,rg,rf,u,v,m,f,p,x,y,z;
+    double n,lat,lon,alt;
+    
+    public:
+    //Convert Earth-Centered-Earth-Fixed (ECEF) to lat, Lon, Altitude
+    //Input is a three element array containing x, y, z in meters
+    //Returned array contains lat and lon in radians, and altitude in meters
+        double * ecef_to_geo( double *ecef ){
+            double geo[3];   //Results go here (Lat, Lon, Altitude)
+            x = ecef[0];
+            y = ecef[1];
+            z = ecef[2];
+            zp = std::fabs( z );
+            w2 = x*x + y*y;
+            w = std::sqrt( w2 );
+            r2 = w2 + z*z;
+            r = std::sqrt( r2 );
+            geo[1] = std::atan2( y, x );       //Lon (final)
+            s2 = z*z/r2;
+            c2 = w2/r2;
+            u = a2/r;
+            v = a3 - a4/r;
+            if( c2 > 0.3 ){
+                s = ( zp/r )*( 1.0 + c2*( a1 + u + s2*v )/r );
+                geo[0] = std::asin( s );      //Lat
+                ss = s*s;
+                c = std::sqrt( 1.0 - ss );
+            }
+            else{
+                c = ( w/r )*( 1.0 - s2*( a5 - u - c2*v )/r );
+                geo[0] = std::acos( c );      //Lat
+                ss = 1.0 - c*c;
+                s = std::sqrt( ss );
+            }
+            g = 1.0 - e2*ss;
+            rg = a/std::sqrt( g );
+            rf = a6*rg;
+            u = w - rg*c;
+            v = zp - rf*s;
+            f = c*u + s*v;
+            m = c*v - s*u;
+            p = m/( rf/g + f );
+            geo[0] = geo[0] + p;      //Lat
+            geo[2] = f + m*p/2.0;     //Altitude
+            if( z < 0.0 ){
+                geo[0] *= -1.0;     //Lat
+            }
+            return( geo );    //Return Lat, Lon, Altitude in that order
+        }
+        
+        //Convert Lat, Lon, Altitude to Earth-Centered-Earth-Fixed (ECEF)
+        //Input is a three element array containing lat, lon (rads) and alt (m)
+        //Returned array contains x, y, z in meters
+        double * geo_to_ecef( double *geo ) {
+            double ecef[3];  //Results go here (x, y, z)
+            lat = geo[0];
+            lon = geo[1];
+            alt = geo[2];
+            n = a/std::sqrt( 1 - e2*std::sin( lat )*std::sin( lat ) );
+            ecef[0] = ( n + alt )*std::cos( lat )*std::cos( lon );    //ECEF x
+            ecef[1] = ( n + alt )*std::cos( lat )*std::sin( lon );    //ECEF y
+            ecef[2] = ( n*(1 - e2 ) + alt )*std::sin( lat );          //ECEF z
+            printf("%lf\r\n", ecef[0]);
+            return( ecef );     //Return x, y, z in ECEF
+        }
+}coords;
+
 /* Converts standard time into Epoch time. Could delete this if no longer needed.*/
 time_t asUnixTime(int year, int mon, int mday, int hour, int min, int sec) {
     struct tm   t;
@@ -122,15 +199,18 @@ void Send_transmission() {
     /*If you have a fix you can fill more of the buffer with location data*/
     //myGPS.fix is commented out for testing, perhaps not even needed
     //If the if statement is used, you must redefine the payload length as it is currently hardcoded
-    //if (myGPS.fix) {
-        //Hardcoded gps data for testing.
-        myGPS.latitude = 9000.00;
-        myGPS.longitude = 18000.00;
-        myGPS.lat = 'N';
-        myGPS.lon = 'E';
-        myGPS.altitude = 99999.99;
-        printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
-        printf("Altitude: %5.2f\r\n", myGPS.altitude);
+    if (myGPS.fix) {
+    }
+        else{
+            //Hardcoded gps data for testing.
+            myGPS.latitude = 9000.00;
+            myGPS.longitude = 18000.00;
+            myGPS.lat = 'N';
+            myGPS.lon = 'E';
+            myGPS.altitude = 99999.99;
+            printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
+            printf("Altitude: %5.2f\r\n", myGPS.altitude);
+        }
 
         //Converting to a non float format for transmission
         unsigned int uint_latitude = (int)(myGPS.latitude * 100);
@@ -170,7 +250,7 @@ void Send_transmission() {
 
         Radio::radio.tx_buf[14] = uint_positioningbot & 0xFF;
     //}
-    unsigned int uint_deviceid = 1917;
+    unsigned int uint_deviceid = 55;
     Radio::radio.tx_buf[15] = uint_deviceid & 0xFF;
 
 
@@ -228,8 +308,11 @@ void rxDoneCB(uint8_t size, float rssi, float snr)
 {
     printf("\r\n-------START OF CYCLE------\r\n");
     printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
+    if(Radio::radio.rx_buf[0] == 0xAA){
+    wait_ms(5050);
     Send_transmission();
-    //Radio::Rx(0); //Temporary while Send_transmission is commented out
+    }
+    Radio::Rx(0);
 }
 
 const RadioEvents_t rev = {
@@ -250,9 +333,15 @@ int main()
     myGPS.begin(9600);  //sets baud rate for GPS communication; note this may be changed via Adafruit_GPS::sendCommand(char *)
                     //a list of GPS commands is available at http://www.adafruit.com/datasheets/PMTK_A08.pdf
     
-    myGPS.sendCommand(PMTK_SET_BAUD_57600);
+    //myGPS.sendCommand(PMTK_SET_BAUD_57600);
     myGPS.sendCommand(PMTK_AWAKE);
     printf("Wake Up GPS...\r\n");
+
+    /*Geodetic to cartesian testing
+    double geodetic[3] = {0.67874351881,-1.34475873537,130.049};
+    double * cartesian = coords.geo_to_ecef(geodetic);
+    printf("%lf\r\n", cartesian[0]);
+    */
 
     wait(1);
     //these commands are defined in MBed_Adafruit_GPS.h; a link is provided there for command creation
@@ -316,4 +405,3 @@ int main()
     printf("Bad news");
     wait(osWaitForever);
 }
-
