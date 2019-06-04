@@ -12,7 +12,6 @@ All text above must be included in any redistribution
 
 // how long are max NMEA lines to parse?
 #define MAXLINELENGTH 120
-
 // we double buffer: read one line in and leave one for the main program
 volatile char line1[MAXLINELENGTH];
 volatile char line2[MAXLINELENGTH];

@@ -27,6 +27,7 @@ What Node does as of May 29 2019
 #endif
 
 #define CODE_RATE 1
+#define M_PI           3.141592  /* pi */
 
 /**********************************************************************/
 
@@ -90,7 +91,7 @@ class Coord {
     //Input is a three element array containing x, y, z in meters
     //Returned array contains lat and lon in radians, and altitude in meters
         double * ecef_to_geo( double *ecef ){
-            double geo[3];   //Results go here (Lat, Lon, Altitude)
+            static double geo[3];   //Results go here (Lat, Lon, Altitude)
             x = ecef[0];
             y = ecef[1];
             z = ecef[2];
@@ -136,18 +137,28 @@ class Coord {
         //Input is a three element array containing lat, lon (rads) and alt (m)
         //Returned array contains x, y, z in meters
         double * geo_to_ecef( double *geo ) {
-            double ecef[3];  //Results go here (x, y, z)
-            lat = geo[0];
-            lon = geo[1];
-            alt = geo[2];
+            static double ecef[3];  //Results go here (x, y, z)
+            lat = geo[0]*M_PI/180;
+            lon = geo[1]*M_PI/180;
+            alt = geo[2]*M_PI/180;
             n = a/std::sqrt( 1 - e2*std::sin( lat )*std::sin( lat ) );
             ecef[0] = ( n + alt )*std::cos( lat )*std::cos( lon );    //ECEF x
             ecef[1] = ( n + alt )*std::cos( lat )*std::sin( lon );    //ECEF y
             ecef[2] = ( n*(1 - e2 ) + alt )*std::sin( lat );          //ECEF z
-            printf("%lf\r\n", ecef[0]);
             return( ecef );     //Return x, y, z in ECEF
         }
 }coords;
+
+//Converts from decimal minutes format to decimal degrees
+double DM_to_DD(double DM){
+    double minutes, degrees;
+
+    DM /= 100;
+    minutes = std::modf(DM, &degrees);
+    minutes *= 100;
+
+    return (degrees + minutes/60);
+}
 
 /* Converts standard time into Epoch time. Could delete this if no longer needed.*/
 time_t asUnixTime(int year, int mon, int mday, int hour, int min, int sec) {
@@ -180,7 +191,6 @@ void Read_Sensors() {
 }
 
 
-//Currently using to send radio transmission. May 24
 // this runs in the lower priority thread
 void Send_transmission() {
 
@@ -337,12 +347,16 @@ int main()
     myGPS.sendCommand(PMTK_AWAKE);
     printf("Wake Up GPS...\r\n");
 
-    /*Geodetic to cartesian testing
+    //Geodetic to cartesian testing
+    /*
     double geodetic[3] = {0.67874351881,-1.34475873537,130.049};
     double * cartesian = coords.geo_to_ecef(geodetic);
-    printf("%lf\r\n", cartesian[0]);
+    printf("%lf %lf %lf\r\n", cartesian[0], cartesian[1], cartesian[2]);
+    printf("%lf\r\n", DM_to_DD(4916.45));
+    printf("%lf\r\n", DM_to_DD(12311.12));
+    double * geodeticagain = coords.ecef_to_geo(cartesian);
+    printf("%lf %lf %lf\r\n", geodeticagain[0], geodeticagain[1], geodeticagain[2]);
     */
-
     wait(1);
     //these commands are defined in MBed_Adafruit_GPS.h; a link is provided there for command creation
     myGPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
