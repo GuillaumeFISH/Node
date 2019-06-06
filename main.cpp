@@ -28,7 +28,7 @@ What Node does as of May 29 2019
 
 #define CODE_RATE 1
 #define M_PI           3.141592  /* pi */
-
+#define TM_ID_GetUnique32(x)    ((x >= 0 && x < 3) ? (*(uint32_t *) (ID_UNIQUE_ADDRESS + 4 * (x))) : 0)
 /**********************************************************************/
 
 //Sensors
@@ -37,7 +37,7 @@ char buffer1[32], buffer2[32], buffer3[32], buffer4[32];
 int32_t axes1[3], axes2[3], axes3[3], axes4[3];
 
 //Timing
-int64_t usTime1 = 0, usTime2 = 0, usDeltaTime = 0;
+int64_t usTime1 = 0;
 int int_time=0;
 bool set_rtc = true;
 
@@ -51,7 +51,6 @@ Adafruit_GPS myGPS(gps_Serial); //object of Adafruit's GPS class
 char c; //when read via Adafruit_GPS::read(), the class returns single character stored here
 
 // Defines the queues
-EventQueue TransmitQueue;
 EventQueue eventQueue;
 EventQueue GPSQueue;
 
@@ -202,13 +201,11 @@ void Send_transmission() {
     Radio::radio.tx_buf[3] = (int)((whattime & 0XFF));
 
     //Some sensor data for fun
-    uint16_t u16_temp1 = (uint16_t)(temp1*100);
-    Radio::radio.tx_buf[4] = (u16_temp1 >> 8) & 0xFF ; 
-    Radio::radio.tx_buf[5] = u16_temp1 & 0xFF ;
+    //uint16_t u16_temp1 = (uint16_t)(temp1*100);
+    //Radio::radio.tx_buf[4] = (u16_temp1 >> 8) & 0xFF ; 
+    //Radio::radio.tx_buf[5] = u16_temp1 & 0xFF ;
 
-    /*If you have a fix you can fill more of the buffer with location data*/
-    //myGPS.fix is commented out for testing, perhaps not even needed
-    //If the if statement is used, you must redefine the payload length as it is currently hardcoded
+    //Check if gps has a fix, otherwise fill gps data with hardcoded stuff for testing
     if (myGPS.fix) {
     }
         else{
@@ -229,7 +226,7 @@ void Send_transmission() {
 
         //Encoding scheme for hemishere indicator (to avoid sending chars and save 4 bits)
         unsigned int uint_latlon = -1; //-1 = error
-        if(myGPS.lat == 'S'){
+        if(myGPS.lat == 'N'){
             if(myGPS.lon == 'E')
                 uint_latlon = 0; //N-E
             else 
@@ -248,25 +245,24 @@ void Send_transmission() {
         //Last 4 bits of altitude and the 4 for lat/long hemisphere
         unsigned int uint_positioningbot = ((uint_altitude << 4) & 0xF0) | (uint_latlon);
 
-        Radio::radio.tx_buf[6] = (uint_positioningtop >> 24) & 0xFF;
-        Radio::radio.tx_buf[7] = (uint_positioningtop >> 16) & 0xFF;
-        Radio::radio.tx_buf[8] = (uint_positioningtop >> 8) & 0xFF;
-        Radio::radio.tx_buf[9] = uint_positioningtop & 0xFF;
+        Radio::radio.tx_buf[4] = (uint_positioningtop >> 24) & 0xFF;
+        Radio::radio.tx_buf[5] = (uint_positioningtop >> 16) & 0xFF;
+        Radio::radio.tx_buf[6] = (uint_positioningtop >> 8) & 0xFF;
+        Radio::radio.tx_buf[7] = uint_positioningtop & 0xFF;
 
-        Radio::radio.tx_buf[10] = (uint_positioningmid >> 24) & 0xFF;
-        Radio::radio.tx_buf[11] = (uint_positioningmid >> 16) & 0xFF;
-        Radio::radio.tx_buf[12] = (uint_positioningmid >> 8) & 0xFF;
-        Radio::radio.tx_buf[13] = uint_positioningmid & 0xFF;
+        Radio::radio.tx_buf[8] = (uint_positioningmid >> 24) & 0xFF;
+        Radio::radio.tx_buf[9] = (uint_positioningmid >> 16) & 0xFF;
+        Radio::radio.tx_buf[10] = (uint_positioningmid >> 8) & 0xFF;
+        Radio::radio.tx_buf[11] = uint_positioningmid & 0xFF;
 
-        Radio::radio.tx_buf[14] = uint_positioningbot & 0xFF;
+        Radio::radio.tx_buf[12] = uint_positioningbot & 0xFF;
     //}
     unsigned int uint_deviceid = 55;
-    Radio::radio.tx_buf[15] = uint_deviceid & 0xFF;
-
+    Radio::radio.tx_buf[13] = uint_deviceid & 0xFF;
 
     txDone = false;
     //The first parameter indicates the size of the payload in bytes, dont forget this.
-    Radio::Send(16, 0, 0, 0);   /* begin transmission */
+    Radio::Send(14, 0, 0, 0);   /* begin transmission */
     printf("Packet sent\r\n");
     while (!txDone) {
         Radio::service();
@@ -280,6 +276,7 @@ void Send_transmission() {
 //Collects and parses GPS data
 //This runs in the high priority thread
 void GPS_data() {
+    t.reset(); //reset us timer every second
     int received = 0;
     do{
         c = myGPS.read();   //queries the GPS
@@ -303,10 +300,7 @@ void GPS_data() {
         set_rtc = false;
     } 
     //Updating the time just because this is the high priority thread
-    usTime2 = usTime1;
-    usTime1 = t.read_high_resolution_us();
-    usDeltaTime = usTime1 - usTime2;
-    whattime = time(NULL); 
+    whattime = time(NULL); //maybe when we need the time we can just call time(NULL) instead of updating it like we do here
 }
 
 void txDoneCB()
@@ -316,6 +310,8 @@ void txDoneCB()
 
 void rxDoneCB(uint8_t size, float rssi, float snr)
 {
+    usTime1 = t.read_us();
+    double d_received_time = myGPS.seconds + usTime1; //Time that can be sent back to gateway for TDOA analysis
     printf("\r\n-------START OF CYCLE------\r\n");
     printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
     if(Radio::radio.rx_buf[0] == 0xAA){
@@ -339,7 +335,8 @@ const RadioEvents_t rev = {
 
 int main()
 {
-    
+   
+
     myGPS.begin(9600);  //sets baud rate for GPS communication; note this may be changed via Adafruit_GPS::sendCommand(char *)
                     //a list of GPS commands is available at http://www.adafruit.com/datasheets/PMTK_A08.pdf
     
@@ -395,20 +392,13 @@ int main()
     // normal priority thread for other events
     Thread eventThread(osPriorityNormal);
     eventThread.start(callback(&eventQueue, &EventQueue::dispatch_forever));
-  
-    // low priority thread for calling Send_transmission()
-    Thread TransmitThread(osPriorityLow);
-    TransmitThread.start(callback(&TransmitQueue, &EventQueue::dispatch_forever));
     
     // call read_sensors 1 every second, automatically defering to the eventThread
     Ticker GPSTicker;
     Ticker ReadTicker;
-    Ticker TransmitTicker;
 
     GPSTicker.attach(GPSQueue.event(&GPS_data), 1.0f);
     ReadTicker.attach(eventQueue.event(&Read_Sensors), 3.0f);
-    //Print ticker currently triggers the radio transmission.
-    //TransmitTicker.attach(TransmitQueue.event(&Send_transmission), 3.0f);
 
     Radio::Rx(0);
     //Service interrupts
