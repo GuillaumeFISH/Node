@@ -28,7 +28,6 @@ What Node does as of May 29 2019
 
 #define CODE_RATE 1
 #define M_PI           3.141592  /* pi */
-#define TM_ID_GetUnique32(x)    ((x >= 0 && x < 3) ? (*(uint32_t *) (ID_UNIQUE_ADDRESS + 4 * (x))) : 0)
 /**********************************************************************/
 
 //Sensors
@@ -40,6 +39,7 @@ int32_t axes1[3], axes2[3], axes3[3], axes4[3];
 int64_t usTime1 = 0;
 int int_time=0;
 bool set_rtc = true;
+int received_time;
 
 //Payload
 uint8_t Buffer[32];
@@ -58,6 +58,8 @@ EventQueue GPSQueue;
 Timer t;
 time_t whattime;
 
+//Configure PPS
+InterruptIn PPS(A1, PullNone);
 
 /* Instantiate the expansion board */
 static XNucleoIKS01A2 *mems_expansion_board = XNucleoIKS01A2::instance(D14, D15, D4, D5);
@@ -195,74 +197,72 @@ void Send_transmission() {
 
     //Building the payload
     //Microcontroller time
+    whattime = time(NULL);
     Radio::radio.tx_buf[0] = (int)((whattime >> 24) & 0xFF) ; 
     Radio::radio.tx_buf[1] = (int)((whattime >> 16) & 0xFF) ;
     Radio::radio.tx_buf[2] = (int)((whattime >> 8) & 0XFF);
     Radio::radio.tx_buf[3] = (int)((whattime & 0XFF));
 
-    //Some sensor data for fun
-    //uint16_t u16_temp1 = (uint16_t)(temp1*100);
-    //Radio::radio.tx_buf[4] = (u16_temp1 >> 8) & 0xFF ; 
-    //Radio::radio.tx_buf[5] = u16_temp1 & 0xFF ;
-
     //Check if gps has a fix, otherwise fill gps data with hardcoded stuff for testing
-    if (myGPS.fix) {
+    if (!myGPS.fix) {
+        //Hardcoded gps data for testing.
+        myGPS.latitude = 9000.00;
+        myGPS.longitude = 18000.00;
+        myGPS.lat = 'N';
+        myGPS.lon = 'E';
+        myGPS.altitude = 99999.99;
+        printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
+        printf("Altitude: %5.2f\r\n", myGPS.altitude);
     }
-        else{
-            //Hardcoded gps data for testing.
-            myGPS.latitude = 9000.00;
-            myGPS.longitude = 18000.00;
-            myGPS.lat = 'N';
-            myGPS.lon = 'E';
-            myGPS.altitude = 99999.99;
-            printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
-            printf("Altitude: %5.2f\r\n", myGPS.altitude);
-        }
 
-        //Converting to a non float format for transmission
-        unsigned int uint_latitude = (int)(myGPS.latitude * 100);
-        unsigned int uint_longitude = (int)(myGPS.longitude * 100);
-        unsigned int uint_altitude = (int)(myGPS.altitude * 100);
+    //Converting to a non float format for transmission
+    unsigned int uint_latitude = (int)(myGPS.latitude * 100);
+    unsigned int uint_longitude = (int)(myGPS.longitude * 100);
+    unsigned int uint_altitude = (int)(myGPS.altitude * 100);
 
-        //Encoding scheme for hemishere indicator (to avoid sending chars and save 4 bits)
-        unsigned int uint_latlon = -1; //-1 = error
-        if(myGPS.lat == 'N'){
-            if(myGPS.lon == 'E')
-                uint_latlon = 0; //N-E
-            else 
-                uint_latlon = 1; //N-W
-        }
-        else if(myGPS.lon == 'E')
-                uint_latlon = 2; //S-E
+    //Encoding scheme for hemishere indicator (to avoid sending chars and save 4 bits)
+    unsigned int uint_latlon = -1; //-1 = error
+    if(myGPS.lat == 'N'){
+        if(myGPS.lon == 'E')
+            uint_latlon = 0; //N-E
+        else 
+            uint_latlon = 1; //N-W
+    }
+    else if(myGPS.lon == 'E')
+            uint_latlon = 2; //S-E
 
-        else
-            uint_latlon = 3; //S-W
+    else
+        uint_latlon = 3; //S-W
 
-        //All 20 bits of latitude and first 12 of longitude
-        unsigned int uint_positioningtop = (uint_latitude << 12) | (uint_longitude >> 12);
-        //Last 12 bits of longitude and first 20 of altitude
-        unsigned int uint_positioningmid = (uint_longitude << 20) | (uint_altitude >> 4);
-        //Last 4 bits of altitude and the 4 for lat/long hemisphere
-        unsigned int uint_positioningbot = ((uint_altitude << 4) & 0xF0) | (uint_latlon);
+    //All 20 bits of latitude and first 12 of longitude
+    unsigned int uint_positioningtop = (uint_latitude << 12) | (uint_longitude >> 12);
+    //Last 12 bits of longitude and first 20 of altitude
+    unsigned int uint_positioningmid = (uint_longitude << 20) | (uint_altitude >> 4);
+    //Last 4 bits of altitude and the 4 for lat/long hemisphere
+    unsigned int uint_positioningbot = ((uint_altitude << 4) & 0xF0) | (uint_latlon);
 
-        Radio::radio.tx_buf[4] = (uint_positioningtop >> 24) & 0xFF;
-        Radio::radio.tx_buf[5] = (uint_positioningtop >> 16) & 0xFF;
-        Radio::radio.tx_buf[6] = (uint_positioningtop >> 8) & 0xFF;
-        Radio::radio.tx_buf[7] = uint_positioningtop & 0xFF;
+    Radio::radio.tx_buf[4] = (uint_positioningtop >> 24) & 0xFF;
+    Radio::radio.tx_buf[5] = (uint_positioningtop >> 16) & 0xFF;
+    Radio::radio.tx_buf[6] = (uint_positioningtop >> 8) & 0xFF;
+    Radio::radio.tx_buf[7] = uint_positioningtop & 0xFF;
 
-        Radio::radio.tx_buf[8] = (uint_positioningmid >> 24) & 0xFF;
-        Radio::radio.tx_buf[9] = (uint_positioningmid >> 16) & 0xFF;
-        Radio::radio.tx_buf[10] = (uint_positioningmid >> 8) & 0xFF;
-        Radio::radio.tx_buf[11] = uint_positioningmid & 0xFF;
+    Radio::radio.tx_buf[8] = (uint_positioningmid >> 24) & 0xFF;
+    Radio::radio.tx_buf[9] = (uint_positioningmid >> 16) & 0xFF;
+    Radio::radio.tx_buf[10] = (uint_positioningmid >> 8) & 0xFF;
+    Radio::radio.tx_buf[11] = uint_positioningmid & 0xFF;
 
-        Radio::radio.tx_buf[12] = uint_positioningbot & 0xFF;
-    //}
+    Radio::radio.tx_buf[12] = uint_positioningbot & 0xFF;
+    
     unsigned int uint_deviceid = 55;
     Radio::radio.tx_buf[13] = uint_deviceid & 0xFF;
 
+    Radio::radio.tx_buf[14] = (received_time >> 16) & 0xFF;
+    Radio::radio.tx_buf[15] = (received_time >> 8) & 0xFF;
+    Radio::radio.tx_buf[16] = received_time & 0xFF;
+
     txDone = false;
     //The first parameter indicates the size of the payload in bytes, dont forget this.
-    Radio::Send(14, 0, 0, 0);   /* begin transmission */
+    Radio::Send(17, 0, 0, 0);   /* begin transmission */
     printf("Packet sent\r\n");
     while (!txDone) {
         Radio::service();
@@ -281,12 +281,15 @@ void GPS_data() {
     do{
         c = myGPS.read();   //queries the GPS
         //if (c) { printf("%c", c); } //this line will echo the GPS data if not paused
-        
+
         //check if we recieved a new message from GPS, if so, attempt to parse it,
+        //ie. Got one whole sentence
         if ( myGPS.newNMEAreceived() ) {
+            //Parsed the message succesfully (had all info present)
             if ( !myGPS.parse(myGPS.lastNMEA()) ) {
                 continue;
             }
+            //Incomplete sentence
             else
                 received++;    
         }
@@ -299,8 +302,6 @@ void GPS_data() {
         set_time(int_time);
         set_rtc = false;
     } 
-    //Updating the time just because this is the high priority thread
-    whattime = time(NULL); //maybe when we need the time we can just call time(NULL) instead of updating it like we do here
 }
 
 void txDoneCB()
@@ -310,13 +311,13 @@ void txDoneCB()
 
 void rxDoneCB(uint8_t size, float rssi, float snr)
 {
-    usTime1 = t.read_us();
-    double d_received_time = myGPS.seconds + usTime1; //Time that can be sent back to gateway for TDOA analysis
-    printf("\r\n-------START OF CYCLE------\r\n");
-    printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
-    if(Radio::radio.rx_buf[0] == 0xAA){
-    wait_ms(5050);
-    Send_transmission();
+    //Time that can be sent back to gateway for TDOA analysis
+    received_time = t.read_us();
+    if(Radio::radio.rx_buf[0] == 0xAB){
+        printf("\r\n-------START OF CYCLE------\r\n");
+        printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
+        wait_ms(5000);
+        Send_transmission();
     }
     Radio::Rx(0);
 }
@@ -374,7 +375,6 @@ int main()
     /* resets and starts the timer */
     t.reset();
     t.start();
-    usTime1 = t.read_high_resolution_us();
   
     /* Enable all sensors */
     hum_temp->enable();
@@ -398,14 +398,15 @@ int main()
     Ticker ReadTicker;
 
     GPSTicker.attach(GPSQueue.event(&GPS_data), 1.0f);
-    ReadTicker.attach(eventQueue.event(&Read_Sensors), 3.0f);
+    ReadTicker.attach(eventQueue.event(&Read_Sensors), 1.0f);
+
+    //PPS.rise(GPSQueue.event(&GPS_data));
+    //PPS.fall(eventQueue.event(&Read_Sensors));
 
     Radio::Rx(0);
     //Service interrupts
     for (;;) { 
         Radio::service();
     }
-    //Should never reach this point
-    printf("Bad news");
     wait(osWaitForever);
 }
