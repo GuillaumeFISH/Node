@@ -181,6 +181,7 @@ time_t asUnixTime(int year, int mon, int mday, int hour, int min, int sec) {
 /* Compares the current time to the last time it was measured */
 void Read_Sensors() {
   // this runs in the normal priority thread
+  //printf("Got to read_sensors\r\n");
   hum_temp->get_temperature(&temp1);
   hum_temp->get_humidity(&humid1);
   press_temp->get_temperature(&temp2);
@@ -197,7 +198,6 @@ void Send_transmission() {
 
     //Building the payload
     //Microcontroller time
-    whattime = time(NULL);
     Radio::radio.tx_buf[0] = (int)((whattime >> 24) & 0xFF) ; 
     Radio::radio.tx_buf[1] = (int)((whattime >> 16) & 0xFF) ;
     Radio::radio.tx_buf[2] = (int)((whattime >> 8) & 0XFF);
@@ -206,11 +206,11 @@ void Send_transmission() {
     //Check if gps has a fix, otherwise fill gps data with hardcoded stuff for testing
     if (!myGPS.fix) {
         //Hardcoded gps data for testing.
-        myGPS.latitude = 9000.00;
-        myGPS.longitude = 18000.00;
+        myGPS.latitude = 6630.5;
+        myGPS.longitude = 11545.25;
         myGPS.lat = 'N';
-        myGPS.lon = 'E';
-        myGPS.altitude = 99999.99;
+        myGPS.lon = 'W';
+        myGPS.altitude = 1120;
         printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
         printf("Altitude: %5.2f\r\n", myGPS.altitude);
     }
@@ -253,7 +253,7 @@ void Send_transmission() {
 
     Radio::radio.tx_buf[12] = uint_positioningbot & 0xFF;
     
-    unsigned int uint_deviceid = 55;
+    unsigned int uint_deviceid = 51;
     Radio::radio.tx_buf[13] = uint_deviceid & 0xFF;
 
     Radio::radio.tx_buf[14] = (received_time >> 16) & 0xFF;
@@ -276,6 +276,7 @@ void Send_transmission() {
 //Collects and parses GPS data
 //This runs in the high priority thread
 void GPS_data() {
+    //printf("Got to gps_data\r\n");
     t.reset(); //reset us timer every second
     int received = 0;
     do{
@@ -313,10 +314,11 @@ void rxDoneCB(uint8_t size, float rssi, float snr)
 {
     //Time that can be sent back to gateway for TDOA analysis
     received_time = t.read_us();
+    whattime = time(NULL);
     if(Radio::radio.rx_buf[0] == 0xAB){
         printf("\r\n-------START OF CYCLE------\r\n");
         printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
-        wait_ms(5000);
+        wait_ms(6000);
         Send_transmission();
     }
     Radio::Rx(0);
