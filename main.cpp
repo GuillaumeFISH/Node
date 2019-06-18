@@ -1,10 +1,3 @@
-/*
-What Node does as of May 29 2019
-1. Mode is set to receive indefinetely
-2. Once a transmission is received, message is printed out
-3. Sends out a transmission which includes gps information
-4. Mode is set to receive indefinetely after successful transmission (in Send_transmission)
-*/
 #include "radio.h"
 #include "XNucleoIKS01A2.h"
 #include "MBed_Adafruit_GPS.h"
@@ -28,6 +21,7 @@ What Node does as of May 29 2019
 
 #define CODE_RATE 1
 #define M_PI           3.141592  /* pi */
+#define PPS_PIN        PC_2      /*PA1*/
 /**********************************************************************/
 
 //Sensors
@@ -59,7 +53,7 @@ Timer t;
 time_t whattime;
 
 //Configure PPS
-InterruptIn PPS(A1, PullNone);
+InterruptIn PPS(PC_2, PullNone); //
 
 /* Instantiate the expansion board */
 static XNucleoIKS01A2 *mems_expansion_board = XNucleoIKS01A2::instance(D14, D15, D4, D5);
@@ -181,7 +175,7 @@ time_t asUnixTime(int year, int mon, int mday, int hour, int min, int sec) {
 /* Compares the current time to the last time it was measured */
 void Read_Sensors() {
   // this runs in the normal priority thread
-  //printf("Got to read_sensors\r\n");
+  //printf("Got to read_sensors\r\n\r\n");
   hum_temp->get_temperature(&temp1);
   hum_temp->get_humidity(&humid1);
   press_temp->get_temperature(&temp2);
@@ -196,25 +190,21 @@ void Read_Sensors() {
 // this runs in the lower priority thread
 void Send_transmission() {
 
-    //Building the payload
-    //Microcontroller time
-    Radio::radio.tx_buf[0] = (int)((whattime >> 24) & 0xFF) ; 
-    Radio::radio.tx_buf[1] = (int)((whattime >> 16) & 0xFF) ;
-    Radio::radio.tx_buf[2] = (int)((whattime >> 8) & 0XFF);
-    Radio::radio.tx_buf[3] = (int)((whattime & 0XFF));
-
     //Check if gps has a fix, otherwise fill gps data with hardcoded stuff for testing
     if (!myGPS.fix) {
         //Hardcoded gps data for testing.
-        myGPS.latitude = 6630.5;
-        myGPS.longitude = 11545.25;
+        myGPS.latitude = 5048.59; //loc 1: 5051.93 loc 2: 5048.59 loc 5: 5054.31
+        myGPS.longitude = 10634.48; //loc 1: 10631.26 loc 2: 10634.48 loc 5: 10639.18
         myGPS.lat = 'N';
         myGPS.lon = 'W';
         myGPS.altitude = 1120;
+
+        //Manually setting whattime for testing purposes
+        whattime = 211146; //loc 1: 1647806 loc 2: 211146 loc 5: 2054754
+
         printf("Location: %5.2f%c, %5.2f%c\r\n", myGPS.latitude, myGPS.lat, myGPS.longitude, myGPS.lon);
         printf("Altitude: %5.2f\r\n", myGPS.altitude);
     }
-
     //Converting to a non float format for transmission
     unsigned int uint_latitude = (int)(myGPS.latitude * 100);
     unsigned int uint_longitude = (int)(myGPS.longitude * 100);
@@ -234,6 +224,10 @@ void Send_transmission() {
     else
         uint_latlon = 3; //S-W
 
+    //Hardcoded device identifier
+    unsigned int uint_deviceid = 2;
+
+    //Constructing variables to hold positioning info
     //All 20 bits of latitude and first 12 of longitude
     unsigned int uint_positioningtop = (uint_latitude << 12) | (uint_longitude >> 12);
     //Last 12 bits of longitude and first 20 of altitude
@@ -241,21 +235,32 @@ void Send_transmission() {
     //Last 4 bits of altitude and the 4 for lat/long hemisphere
     unsigned int uint_positioningbot = ((uint_altitude << 4) & 0xF0) | (uint_latlon);
 
+    //Building the payload
+    //Microcontroller time
+    Radio::radio.tx_buf[0] = (int)((whattime >> 24) & 0xFF) ; 
+    Radio::radio.tx_buf[1] = (int)((whattime >> 16) & 0xFF) ;
+    Radio::radio.tx_buf[2] = (int)((whattime >> 8) & 0XFF);
+    Radio::radio.tx_buf[3] = (int)((whattime & 0XFF));
+
+    //First 4 positioning bytes
     Radio::radio.tx_buf[4] = (uint_positioningtop >> 24) & 0xFF;
     Radio::radio.tx_buf[5] = (uint_positioningtop >> 16) & 0xFF;
     Radio::radio.tx_buf[6] = (uint_positioningtop >> 8) & 0xFF;
     Radio::radio.tx_buf[7] = uint_positioningtop & 0xFF;
 
+    //Middle 4 positioning bytes
     Radio::radio.tx_buf[8] = (uint_positioningmid >> 24) & 0xFF;
     Radio::radio.tx_buf[9] = (uint_positioningmid >> 16) & 0xFF;
     Radio::radio.tx_buf[10] = (uint_positioningmid >> 8) & 0xFF;
     Radio::radio.tx_buf[11] = uint_positioningmid & 0xFF;
 
+    //Last positioning byte
     Radio::radio.tx_buf[12] = uint_positioningbot & 0xFF;
     
-    unsigned int uint_deviceid = 51;
+    //Device Identifier
     Radio::radio.tx_buf[13] = uint_deviceid & 0xFF;
 
+    //Microsecond timer timestamp from when query was received
     Radio::radio.tx_buf[14] = (received_time >> 16) & 0xFF;
     Radio::radio.tx_buf[15] = (received_time >> 8) & 0xFF;
     Radio::radio.tx_buf[16] = received_time & 0xFF;
@@ -276,8 +281,10 @@ void Send_transmission() {
 //Collects and parses GPS data
 //This runs in the high priority thread
 void GPS_data() {
-    //printf("Got to gps_data\r\n");
+    int d = t.read_us();
     t.reset(); //reset us timer every second
+    //printf("Got to gps_data\r\n");
+    //printf("Timestamp: %d\r\n", d);
     int received = 0;
     do{
         c = myGPS.read();   //queries the GPS
@@ -298,7 +305,8 @@ void GPS_data() {
 
     int_time = asUnixTime(myGPS.year+2000, myGPS.month, myGPS.day, myGPS.hour, myGPS.minute, myGPS.seconds);  
     
-    //set rtc when called for the first time (sync to gps on startup) 
+    //set rtc when called for the first time (sync to gps on startup)
+    //Will likely be later used to resync microcontroller rtc with GPS
     if (set_rtc){
         set_time(int_time);
         set_rtc = false;
@@ -315,10 +323,12 @@ void rxDoneCB(uint8_t size, float rssi, float snr)
     //Time that can be sent back to gateway for TDOA analysis
     received_time = t.read_us();
     whattime = time(NULL);
+
+    //If query has correct key, send back positioning data
     if(Radio::radio.rx_buf[0] == 0xAB){
         printf("\r\n-------START OF CYCLE------\r\n");
         printf("Received Query: %0X\r\n", Radio::radio.rx_buf[0]);
-        wait_ms(6000);
+        wait_ms(4100);
         Send_transmission();
     }
     Radio::Rx(0);
@@ -340,10 +350,11 @@ int main()
 {
    
 
-    myGPS.begin(9600);  //sets baud rate for GPS communication; note this may be changed via Adafruit_GPS::sendCommand(char *)
+    myGPS.begin(57600);  //sets baud rate for GPS communication; note this may be changed via Adafruit_GPS::sendCommand(char *)
                     //a list of GPS commands is available at http://www.adafruit.com/datasheets/PMTK_A08.pdf
-    
-    //myGPS.sendCommand(PMTK_SET_BAUD_57600);
+
+    myGPS.sendCommand(PMTK_SET_BAUD_57600);
+    wait(1);
     myGPS.sendCommand(PMTK_AWAKE);
     printf("Wake Up GPS...\r\n");
 
@@ -357,10 +368,11 @@ int main()
     double * geodeticagain = coords.ecef_to_geo(cartesian);
     printf("%lf %lf %lf\r\n", geodeticagain[0], geodeticagain[1], geodeticagain[2]);
     */
+
     wait(1);
     //these commands are defined in MBed_Adafruit_GPS.h; a link is provided there for command creation
     myGPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-    myGPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ);
+    myGPS.sendCommand(PMTK_SET_NMEA_UPDATE_5HZ);
     myGPS.sendCommand(PGCMD_NOANTENNA);
 
     //Intialize transmitter settings
